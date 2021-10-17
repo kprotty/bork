@@ -968,13 +968,22 @@ const BSDReactor = struct {
         var self = Reactor{ .kqueue_fd = try os.kqueue() };
         errdefer os.close(self.kqueue_fd);
 
-        try self.kevent(.{
+        var events: [1]os.Kevent = undefined;
+        events[0] = .{
             .ident = 0, // zero-ident for notify event,
             .filter = notify_info.filter,
             .flags = os.system.EV_ADD | os.system.EV_CLEAR | os.system.EV_DISABLE,
             .fflags = 0, // fflags unused for notify_info.filter
+            .data = 0, // data is unused
             .udata = 0, // zero-udata for notify event
-        });
+        };
+
+        _ = try os.kevent(
+            self.kqueue_fd,
+            &events,
+            &[0]os.Kevent{},
+            null,
+        );
 
         return self;
     }
@@ -988,37 +997,17 @@ const BSDReactor = struct {
     };
 
     fn schedule(self: Reactor, fd: os.fd_t, io_type: IoType, completion: *Completion) !void {
-        try self.kevent(.{
-            .ident = @intCast(usize, fd),
-            .filter = @as(i32, switch (io_type) {
-                .read => os.system.EVFILT_READ,
-                .write => os.system.EVFILT_WRITE,
-            }),
-            .flags = os.system.EV_ADD | os.system.EV_ENABLE | os.system.EV_ONESHOT,
-            .fflags = 0, // fflags usused for read/write events
-            .udata = @ptrToInt(&completion.task),
-        });
-    }
-
-    fn notify(self: Reactor) void {
-        self.kevent(.{
-            .ident = 0, // zero-ident for notify event
-            .filter = notify_info.filter,
-            .flags = os.system.EV_ENABLE,
-            .fflags = notify_info.fflags,
-            .udata = 0, // zero-udata for notify event
-        }) catch unreachable;
-    }
-
-    fn kevent(self: Reactor, info: anytype) !void {
         var events: [1]os.Kevent = undefined;
         events[0] = .{
-            .ident = info.ident,
-            .filter = info.filter,
-            .flags = info.flags,
-            .fflags = info.fflags,
+            .ident = @intCast(usize, fd),
+            .filter = switch (io_type) {
+                .read => os.system.EVFILT_READ,
+                .write => os.system.EVFILT_WRITE,
+            },
+            .flags = os.system.EV_ADD | os.system.EV_ENABLE | os.system.EV_ONESHOT,
+            .fflags = 0, // fflags usused for read/write events
             .data = 0,
-            .udata = info.udata,
+            .udata = @ptrToInt(&completion.task),
         };
 
         _ = try os.kevent(
@@ -1027,6 +1016,25 @@ const BSDReactor = struct {
             &[0]os.Kevent{},
             null,
         );
+    }
+
+    fn notify(self: Reactor) void {
+        var events: [1]os.Kevent = undefined;
+        events[0] = .{
+            .ident = 0, // zero-ident for notify event
+            .filter = notify_info.filter,
+            .flags = os.system.EV_ENABLE,
+            .fflags = notify_info.fflags,
+            .data = 0,
+            .udata = 0, // zero-udata for notify event
+        };
+
+        _ = os.kevent(
+            self.kqueue_fd,
+            &events,
+            &[0]os.Kevent{},
+            null,
+        ) catch unreachable;
     }
 
     fn poll(self: Reactor, notified: *bool) Task.List {

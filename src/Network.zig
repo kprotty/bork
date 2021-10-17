@@ -5,6 +5,7 @@ const GlobalEventUnion = @import("main.zig").Event;
 const Chat = @import("Chat.zig");
 const parser = @import("network/parser.zig");
 const EmoteCache = @import("network/EmoteCache.zig");
+const Loop = @import("loop.zig");
 
 const build_opts = @import("build_options");
 
@@ -32,10 +33,10 @@ tz: datetime.Timezone,
 allocator: *std.mem.Allocator,
 ch: *Channel(GlobalEventUnion),
 emote_cache: EmoteCache,
-socket: std.net.Stream,
-reader: std.net.Stream.Reader,
-writer: std.net.Stream.Writer,
-writer_lock: std.event.Lock = .{},
+socket: Loop.net.Stream,
+reader: Loop.net.Stream.Reader,
+writer: Loop.net.Stream.Writer,
+writer_lock: Loop.sync.Lock = .{},
 _atomic_reconnecting: bool = false,
 
 const Self = @This();
@@ -79,11 +80,11 @@ pub fn init(
 pub fn deinit(self: *Self) void {
     // Try to grab the reconnecting flag
     while (@atomicRmw(bool, &self._atomic_reconnecting, .Xchg, true, .SeqCst)) {
-        std.time.sleep(10 * std.time.ns_per_ms);
+        Loop.instance.?.yield();
     }
 
     // Now we can kill the connection and nobody will try to reconnect
-    std.os.shutdown(self.socket.handle, .both) catch unreachable;
+    std.os.shutdown(self.socket.getHandle(), .both) catch unreachable;
     await @ptrCast(anyframe->void, messages_frame_bytes);
     self.socket.close();
 }
@@ -94,7 +95,7 @@ fn receiveMessages(self: *Self) void {
     // yield immediately so callers can go on
     // with their lives instead of risking being
     // trapped reading a spammy socket forever
-    std.event.Loop.instance.?.yield();
+    Loop.instance.?.yield();
     while (true) {
         var data = self.reader.readUntilDelimiterAlloc(self.allocator, '\n', 4096) catch |err| {
             std.log.debug("receiveMessages errored out: {e}", .{err});
@@ -210,7 +211,7 @@ fn isReconnecting(self: *Self) bool {
 
 // Tries to reconnect forever.
 // As an optimization, writers can pass ownership of the lock directly.
-fn reconnect(self: *Self, writer_held: ?std.event.Lock.Held) void {
+fn reconnect(self: *Self, writer_held: ?Loop.sync.Lock.Held) void {
     if (@atomicRmw(bool, &self._atomic_reconnecting, .Xchg, true, .SeqCst)) {
         if (writer_held) |h| h.release();
         return;
@@ -223,7 +224,7 @@ fn reconnect(self: *Self, writer_held: ?std.event.Lock.Held) void {
 // This function is a perfect example of what runDetached does,
 // with the exception that we don't want to allocate dynamic
 // memory for it.
-fn _reconnect(self: *Self, writer_held: ?std.event.Lock.Held) void {
+fn _reconnect(self: *Self, writer_held: ?Loop.sync.Lock.Held) void {
     var retries: usize = 0;
     var backoff = [_]usize{
         100, 400, 800, 2000, 5000, 10000, //ms
@@ -238,7 +239,7 @@ fn _reconnect(self: *Self, writer_held: ?std.event.Lock.Held) void {
     // Sync with the reader. It will at one point notice
     // that the connection is borked and return.
     {
-        std.os.shutdown(self.socket.handle, .both) catch unreachable;
+        std.os.shutdown(self.socket.getHandle(), .both) catch unreachable;
         // await messages_frame;
         await @ptrCast(anyframe->void, messages_frame_bytes);
         self.socket.close();
@@ -275,7 +276,10 @@ fn _reconnect(self: *Self, writer_held: ?std.event.Lock.Held) void {
         while (true) {
             var s = connect(self.allocator, self.name, self.oauth) catch {
                 // TODO: panic on non-transient errors.
-                std.time.sleep(backoff[retries] * std.time.ns_per_ms);
+                
+                // std.time.sleep(backoff[retries] * std.time.ns_per_ms);
+                Loop.instance.?.yield();
+
                 if (retries < backoff.len - 1) {
                     retries += 1;
                 }
@@ -317,11 +321,11 @@ fn _reconnect(self: *Self, writer_held: ?std.event.Lock.Held) void {
     }
 }
 
-fn connect(alloc: *std.mem.Allocator, name: []const u8, oauth: []const u8) !std.net.Stream {
+fn connect(alloc: *std.mem.Allocator, name: []const u8, oauth: []const u8) !Loop.net.Stream {
     var socket = if (build_opts.local)
-        try std.net.tcpConnectToHost(alloc, "localhost", 6667)
+        try Loop.net.tcpConnectToHost(alloc, "localhost", 6667)
     else
-        try std.net.tcpConnectToHost(alloc, "irc.chat.twitch.tv", 6667);
+        try Loop.net.tcpConnectToHost(alloc, "irc.chat.twitch.tv", 6667);
 
     errdefer socket.close();
 

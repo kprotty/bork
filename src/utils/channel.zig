@@ -1,4 +1,5 @@
 const std = @import("std");
+const Loop = @import("../loop.zig");
 
 const Held = @TypeOf(@as(std.Thread.Mutex, undefined).impl).Held;
 
@@ -11,10 +12,8 @@ pub fn Channel(comptime T: type) type {
         getters: ?*Waiter = null,
         putters: ?*Waiter = null,
 
-        const Task = std.event.Loop.NextTickNode;
-        const loop_instance = std.event.Loop.instance orelse {
-            @compileError("Only supported in evented mode");
-        };
+        const Task = Loop.Task;
+        const loop_instance = &Loop.instance;
 
         const Self = @This();
         const Waiter = struct {
@@ -34,7 +33,7 @@ pub fn Channel(comptime T: type) type {
             if (pop(&self.getters)) |waiter| {
                 held.release();
                 waiter.item = item;
-                loop_instance.onNextTick(&waiter.task);
+                Loop.instance.?.schedule(&waiter.task);
                 return;
             }
 
@@ -83,7 +82,7 @@ pub fn Channel(comptime T: type) type {
             if (pop(&self.putters)) |waiter| {
                 held.release();
                 const item = waiter.item;
-                loop_instance.onNextTick(&waiter.task);
+                Loop.instance.?.schedule(&waiter.task);
                 return item;
             }
 
@@ -96,7 +95,7 @@ pub fn Channel(comptime T: type) type {
             waiter.item = item;
 
             suspend {
-                waiter.task = Task{ .data = @frame() };
+                waiter.task = Task.init(@frame());
                 held.release();
             }
 

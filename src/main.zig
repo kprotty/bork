@@ -4,13 +4,12 @@ const datetime = @import("datetime");
 const clap = @import("clap");
 const zfetch = @import("zfetch");
 
+const Loop = @import("loop.zig");
 const Channel = @import("utils/channel.zig").Channel;
 const senseUserTZ = @import("utils/sense_tz.zig").senseUserTZ;
 const Network = @import("Network.zig");
 const Terminal = @import("Terminal.zig");
 const Chat = @import("Chat.zig");
-
-pub const io_mode = .evented;
 
 pub const Event = union(enum) {
     display: Terminal.Event,
@@ -21,6 +20,10 @@ const oauth_file_name = ".bork-oauth";
 
 var log_level: std.log.Level = .warn;
 pub fn main() !void {
+    try (try Loop.run(asyncMain, .{}));
+}
+
+fn asyncMain() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var alloc = &gpa.allocator;
     const nick = nick: {

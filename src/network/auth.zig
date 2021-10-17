@@ -2,16 +2,17 @@ const std = @import("std");
 const hzzp = @import("hzzp");
 const tls = @import("iguanaTLS");
 const build_opts = @import("build_options");
+const Loop = @import("../loop.zig");
 
 const hostname = "id.twitch.tv";
 
 pub fn checkTokenValidity(allocator: *std.mem.Allocator, token: []const u8) !bool {
     if (build_opts.local) return true;
 
-    const TLSStream = tls.Client(std.net.Stream.Reader, std.net.Stream.Writer, tls.ciphersuites.all, true);
+    const TLSStream = tls.Client(Loop.net.Stream.Reader, Loop.net.Stream.Writer, tls.ciphersuites.all, true);
     const HttpClient = hzzp.base.client.BaseClient(TLSStream.Reader, TLSStream.Writer);
 
-    var sock = try std.net.tcpConnectToHost(allocator, hostname, 443);
+    var sock = try Loop.net.tcpConnectToHost(allocator, hostname, 443);
     defer sock.close();
 
     var randBuf: [32]u8 = undefined;

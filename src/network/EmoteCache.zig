@@ -6,6 +6,7 @@ const b64 = std.base64.standard_encoder;
 const hzzp = @import("hzzp");
 const tls = @import("iguanaTLS");
 const Emote = @import("../Chat.zig").Message.Emote;
+const Loop = @import("../loop.zig");
 
 const EmoteHashMap = std.StringHashMap(struct {
     data: []const u8,
@@ -39,10 +40,10 @@ pub fn fetch(self: *Self, emote_list: []Emote) !void {
             std.log.debug("need to download", .{});
             // Need to download the image
             var img = img: {
-                const TLSStream = tls.Client(std.net.Stream.Reader, std.net.Stream.Writer, tls.ciphersuites.all, true);
+                const TLSStream = tls.Client(Loop.net.Stream.Reader, Loop.net.Stream.Writer, tls.ciphersuites.all, true);
                 const HttpClient = hzzp.base.client.BaseClient(TLSStream.Reader, TLSStream.Writer);
 
-                var sock = try std.net.tcpConnectToHost(self.allocator, hostname, 443);
+                var sock = try Loop.net.tcpConnectToHost(self.allocator, hostname, 443);
                 defer sock.close();
 
                 var rand = blk: {

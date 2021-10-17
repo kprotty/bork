@@ -3,6 +3,7 @@ const zbox = @import("zbox");
 const Channel = @import("utils/channel.zig").Channel;
 const Chat = @import("Chat.zig");
 const GlobalEventUnion = @import("main.zig").Event;
+const Loop = @import("loop.zig");
 
 const ziglyph = @import("ziglyph");
 
@@ -623,7 +624,9 @@ pub fn startTicking(ch: *Channel(GlobalEventUnion)) void {
     var chaos_cooldown: isize = -1;
     var last_size: @TypeOf(zbox.size()) = undefined;
     while (true) {
-        std.time.sleep(100 * std.time.ns_per_ms);
+        //std.time.sleep(100 * std.time.ns_per_ms);
+        Loop.instance.?.yield();
+
         if (@atomicRmw(bool, &dirty, .Xchg, false, .SeqCst)) {
             // Flag was true, term is being resized
             ch.put(GlobalEventUnion{ .display = .chaos });
@@ -650,7 +653,8 @@ pub fn startTicking(ch: *Channel(GlobalEventUnion)) void {
 
 pub fn notifyDisplayEvents(ch: *Channel(GlobalEventUnion)) !void {
     defer std.log.debug("notfyDisplayEvents returning", .{});
-    std.event.Loop.instance.?.yield();
+    Loop.instance.?.yield();
+
     while (true) {
         if (try zbox.nextEvent()) |event| {
             ch.put(GlobalEventUnion{ .display = event });
